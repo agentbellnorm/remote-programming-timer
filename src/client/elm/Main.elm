@@ -4,8 +4,7 @@ import Browser
 import Html exposing (..)
 import Html.Attributes exposing (..)
 import Html.Events exposing (onClick, onInput)
-import Http
-import Json.Decode as Decode exposing (Error, field)
+import Json.Decode as Decode exposing (Error)
 import Json.Encode as Encode
 import List.Extra
 import Time exposing (Posix)
@@ -27,6 +26,7 @@ port sendMessage : String -> Cmd msg
 
 port receiveMessage : (String -> msg) -> Sub msg
 
+port notify : String -> Cmd msg
 
 
 -- MODEL
@@ -113,10 +113,8 @@ type Msg
     = AddPerson
     | RemovePerson String
     | NewPersonInput String
-    | JoinSessionInput String
     | StartTimer
     | CreateSession
-    | JoinSession
     | Tick Time.Posix
     | Pause
     | Resume
@@ -152,9 +150,6 @@ update msg model =
         NewPersonInput value ->
             ( { model | newPersonInput = value }, Cmd.none )
 
-        JoinSessionInput value ->
-            ( { model | joinSessionInput = value }, Cmd.none )
-
         StartTimer ->
             let
                 newModel =
@@ -170,12 +165,16 @@ update msg model =
                 ( { model | elapsedTime = model.elapsedTime + 1000 }, Cmd.none )
 
             else if model.elapsedTime >= model.timerDuration && model.timerStatus == Running then
+                let
+                    rotatedPersons =
+                        rotate model.persons
+                in
                 ( { model
                     | timerStatus = Done
                     , elapsedTime = 0
-                    , persons = rotate model.persons
+                    , persons = rotatedPersons
                   }
-                , Cmd.none
+                , notifyCommand (getNextPerson rotatedPersons ++ "s turn!")
                 )
 
             else
@@ -196,10 +195,7 @@ update msg model =
             ( newModel, updateSessionCommand newModel )
 
         CreateSession ->
-            ( model, createSessionCommand )
-
-        JoinSession ->
-            ( { model | sessionId = Just model.joinSessionInput }, joinSessionCommand model.joinSessionInput )
+            ( model, createSessionCommand model )
 
         ReceiveMessage message ->
             let
@@ -218,7 +214,7 @@ update msg model =
                 Ok "created-session" ->
                     case Decode.decodeString (createdSessionDecoder model) message of
                         Ok newModel ->
-                            ( newModel , Cmd.none )
+                            ( newModel, Cmd.none )
 
                         Err _ ->
                             modelWithError
@@ -227,19 +223,21 @@ update msg model =
                     modelWithError
 
 
-createSessionCommand : Cmd Msg
-createSessionCommand =
-    sendMessage
-        (Encode.encode 0
-            (Encode.object [ ( "type", Encode.string "create-session" ) ])
-        )
+notifyCommand : String -> Cmd Msg
+notifyCommand text =
+    notify text
+
+
+createSessionCommand : Model -> Cmd Msg
+createSessionCommand model =
+    sendMessage (modelToJsonString model CREATE_SESSION)
 
 
 updateSessionCommand : Model -> Cmd Msg
 updateSessionCommand model =
     case model.sessionId of
-        Just session ->
-            sendMessage (encodeUpdateSessionMessage ACTION (Just session) model.persons model.timerDuration model.elapsedTime model.timerStatus)
+        Just _ ->
+            sendMessage (modelToJsonString model ACTION)
 
         Nothing ->
             Cmd.none
@@ -267,16 +265,16 @@ maybeJoinSessionCommand sessionId =
             Cmd.none
 
 
-encodeUpdateSessionMessage : MessageType -> Maybe String -> List String -> Int -> Int -> TimerStatus -> String
-encodeUpdateSessionMessage messageType sessionId persons timerDuration elapsedTime timerStatus =
+modelToJsonString : Model -> MessageType -> String
+modelToJsonString model messageType =
     Encode.encode 0
         (Encode.object
-            [ ( "sessionId", (Encode.string (Maybe.withDefault "" sessionId )))
-            , ( "persons", Encode.list Encode.string persons )
+            [ ( "sessionId", Encode.string (Maybe.withDefault "" model.sessionId) )
+            , ( "persons", Encode.list Encode.string model.persons )
             , ( "type", Encode.string (messageTypeToString messageType) )
-            , ( "timerDuration", Encode.int timerDuration )
-            , ( "elapsedTime", Encode.int elapsedTime )
-            , ( "timerStatus", Encode.string (timerStatusToString timerStatus) )
+            , ( "timerDuration", Encode.int model.timerDuration )
+            , ( "elapsedTime", Encode.int model.elapsedTime )
+            , ( "timerStatus", Encode.string (timerStatusToString model.timerStatus) )
             ]
         )
 
@@ -336,15 +334,24 @@ stringToTimerStatus str =
         _ ->
             NotStarted
 
+
 messageTypeToString : MessageType -> String
 messageTypeToString messageType =
     case messageType of
-        CREATE_SESSION -> "create-session"
-        ACTION -> "action"
+        CREATE_SESSION ->
+            "create-session"
+
+        ACTION ->
+            "action"
+
 
 getShareUrl : String -> String -> String
 getShareUrl location sessionId =
-    location ++ "?s=" ++ sessionId
+    if String.contains "?s=" location then
+        location
+    else
+        location ++ "?s=" ++ sessionId
+
 
 rotate : List String -> List String
 rotate persons =
@@ -403,8 +410,6 @@ view model =
         , addedPersons model.persons
         , button [ onClick CreateSession ] [ text "Create new session" ]
         , timer model
-        , viewInput "text" "Session id" model.joinSessionInput JoinSessionInput
-        , button [ onClick JoinSession ] [ text "Join Session" ]
         , invite model
         ]
 
@@ -477,12 +482,13 @@ errorMessage error =
         Nothing ->
             div [] []
 
+
 invite : Model -> Html Msg
 invite model =
     case model.sessionId of
         Just s ->
             div []
-            [ text ("Invite friends: " ++ (getShareUrl model.location s)) ]
+                [ text ("Invite friends: " ++ getShareUrl model.location s) ]
 
         Nothing ->
             div [] []

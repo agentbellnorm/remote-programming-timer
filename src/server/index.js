@@ -16,17 +16,16 @@ const onCreateSession = (socket, msg) => {
   console.log(`created session ${sessionId}, sessions: ${JSON.stringify(sessions)}`)
 };
 
-const onJoin = (socket, msg) => {
-  const {sessionId} = msg;
+const onJoin = (socket, {sessionId}) => {
   socket.join(sessionId);
-  socket.emit('message', {...sessions[sessionId].state, type: 'action'});
+  let state = {...sessions[sessionId], type: 'action'};
+  socket.emit('message', state);
 };
 
-const onAction = (socket, message) => {
-  let session = sessions[message.sessionId];
-  session.state = message;
-  console.log('emitting message ', message);
-  io.to(message.sessionId).emit('message', {...message, type: 'action',});
+const onAction = (socket, state) => {
+  sessions[state.sessionId] = state;
+  console.log('emitting message ', state);
+  io.to(state.sessionId).emit('message', {...state, type: 'action',});
 };
 
 io.on('connection', socket => {
@@ -44,7 +43,7 @@ io.on('connection', socket => {
         onAction(socket, parsed);
         break;
       case 'create-session':
-        onCreateSession(socket);
+        onCreateSession(socket, parsed);
         break;
       default:
         console.log('no handler for message with type ' + parsed.type + " " + msg);
