@@ -16,7 +16,7 @@ import Url.Parser.Query as Query
 
 -- MAIN
 
-
+main : Program String Model Msg
 main =
     Browser.element { init = init, update = update, subscriptions = subscriptions, view = view }
 
