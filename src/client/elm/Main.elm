@@ -16,7 +16,7 @@ import Url.Parser.Query as Query
 
 -- MAIN
 
-main : Program String Model Msg
+main : Program Encode.Value Model Msg
 main =
     Browser.element { init = init, update = update, subscriptions = subscriptions, view = view }
 
@@ -59,6 +59,7 @@ type alias UpdatedModel =
 type alias Model =
     { persons : List String
     , newPersonInput : String
+    , setDurationMinutes : Int
     , joinSessionInput : String
     , timerDuration : Int
     , elapsedTime : Int
@@ -69,14 +70,15 @@ type alias Model =
     }
 
 
-init : String -> ( Model, Cmd Msg )
-init location =
+init : Encode.Value -> ( Model, Cmd Msg )
+init flags =
     let
-        sessionId =
-            getSessionIdFromLocation location
+        location = decodeLocation flags
+        sessionId = getSessionIdFromLocation location
     in
     ( { persons = []
       , newPersonInput = ""
+      , setDurationMinutes = 15
       , joinSessionInput = ""
       , timerDuration = 10000
       , elapsedTime = 0
@@ -98,11 +100,16 @@ getSessionIdFromLocation location =
     case Url.fromString location of
         Just url ->
             { url | path = "" }
-                |> Url.Parser.parse (Url.Parser.query sessionIdParser)
-                |> Maybe.withDefault Nothing
+            |> Url.Parser.parse (Url.Parser.query sessionIdParser)
+            |> Maybe.withDefault Nothing
 
-        Nothing ->
-            Nothing
+        Nothing -> Nothing
+
+decodeLocation : Encode.Value -> String
+decodeLocation flags =
+    case Decode.decodeValue (Decode.field "location" Decode.string) flags of
+        Ok location -> location
+        Err _ -> "http://localhost:8000/"
 
 
 
@@ -113,6 +120,7 @@ type Msg
     = AddPerson
     | RemovePerson String
     | NewPersonInput String
+    | SetDurationMinutesInput String
     | StartTimer
     | CreateSession
     | Tick Time.Posix
@@ -149,6 +157,9 @@ update msg model =
 
         NewPersonInput value ->
             ( { model | newPersonInput = value }, Cmd.none )
+
+        SetDurationMinutesInput value ->
+            ( { model | setDurationMinutes = Maybe.withDefault 15 (String.toInt value)}, Cmd.none )
 
         StartTimer ->
             let
@@ -408,6 +419,8 @@ view model =
         , viewInput "text" "Coder Name" model.newPersonInput NewPersonInput
         , button [ onClick AddPerson ] [ text "Add Coder" ]
         , addedPersons model.persons
+        , label [] [text "Set time"]
+        , input [type_ "number", Html.Attributes.min "0", step "5", placeholder "Set duration", value (String.fromInt model.setDurationMinutes), onInput SetDurationMinutesInput ] []
         , button [ onClick CreateSession ] [ text "Create new session" ]
         , timer model
         , invite model
