@@ -20,6 +20,7 @@ app.ports.notify.subscribe(message => {
   console.log('notify: ', message);
   if (Notification.permission === "granted") {
     new Notification(message);
+    document.querySelector('#bell').play();
   }
 
   else if (Notification.permission !== "denied") {

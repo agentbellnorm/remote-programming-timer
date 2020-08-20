@@ -16,6 +16,7 @@ import Url.Parser.Query as Query
 
 -- MAIN
 
+
 main : Program Encode.Value Model Msg
 main =
     Browser.element { init = init, update = update, subscriptions = subscriptions, view = view }
@@ -26,7 +27,9 @@ port sendMessage : String -> Cmd msg
 
 port receiveMessage : (String -> msg) -> Sub msg
 
+
 port notify : String -> Cmd msg
+
 
 
 -- MODEL
@@ -42,6 +45,7 @@ type TimerStatus
 type Direction
     = Up
     | Down
+
 
 type MessageType
     = CREATE_SESSION
@@ -73,14 +77,17 @@ type alias Model =
 init : Encode.Value -> ( Model, Cmd Msg )
 init flags =
     let
-        location = decodeLocation flags
-        sessionId = getSessionIdFromLocation location
+        location =
+            decodeLocation flags
+
+        sessionId =
+            getSessionIdFromLocation location
     in
     ( { persons = []
       , newPersonInput = ""
       , setDurationMinutes = 15
       , joinSessionInput = ""
-      , timerDuration = 10000
+      , timerDuration = 15 * 60 * 1000
       , elapsedTime = 0
       , timerStatus = NotStarted
       , sessionId = sessionId
@@ -100,16 +107,21 @@ getSessionIdFromLocation location =
     case Url.fromString location of
         Just url ->
             { url | path = "" }
-            |> Url.Parser.parse (Url.Parser.query sessionIdParser)
-            |> Maybe.withDefault Nothing
+                |> Url.Parser.parse (Url.Parser.query sessionIdParser)
+                |> Maybe.withDefault Nothing
 
-        Nothing -> Nothing
+        Nothing ->
+            Nothing
+
 
 decodeLocation : Encode.Value -> String
 decodeLocation flags =
     case Decode.decodeValue (Decode.field "location" Decode.string) flags of
-        Ok location -> location
-        Err _ -> "http://localhost:8000/"
+        Ok location ->
+            location
+
+        Err _ ->
+            "http://localhost:8000/"
 
 
 
@@ -159,12 +171,15 @@ update msg model =
             ( { model | newPersonInput = value }, Cmd.none )
 
         SetDurationMinutesInput value ->
-            ( { model | setDurationMinutes = Maybe.withDefault 15 (String.toInt value)}, Cmd.none )
+            ( { model | setDurationMinutes = Maybe.withDefault 15 (String.toInt value) }, Cmd.none )
 
         StartTimer ->
             let
                 newModel =
-                    { model | timerStatus = Running }
+                    { model
+                        | timerStatus = Running
+                        , timerDuration = model.setDurationMinutes * 60000
+                    }
             in
             ( newModel, updateSessionCommand newModel )
 
@@ -360,6 +375,7 @@ getShareUrl : String -> String -> String
 getShareUrl location sessionId =
     if String.contains "?s=" location then
         location
+
     else
         location ++ "?s=" ++ sessionId
 
@@ -414,22 +430,33 @@ subscriptions model =
 
 view : Model -> Html Msg
 view model =
-    div []
+    div
+        [ style "max-width" "38rem"
+        , style "padding" "2rem"
+        , style "margin" "auto"
+        ]
         [ errorMessage model.error
         , viewInput "text" "Coder Name" model.newPersonInput NewPersonInput
         , button [ onClick AddPerson ] [ text "Add Coder" ]
         , addedPersons model.persons
-        , label [] [text "Set time"]
-        , input [type_ "number", Html.Attributes.min "0", step "5", placeholder "Set duration", value (String.fromInt model.setDurationMinutes), onInput SetDurationMinutesInput ] []
-        , button [ onClick CreateSession ] [ text "Create new session" ]
+        , label [] [ text "Set time" ]
+        , input [ type_ "number", Html.Attributes.min "0", step "5", placeholder "Set duration", value (String.fromInt model.setDurationMinutes), onInput SetDurationMinutesInput ] []
         , timer model
+        , timerControlls model
+        , button [ onClick CreateSession ] [ text "Create new session" ]
         , invite model
+        , bell
         ]
 
 
 viewInput : String -> String -> String -> (String -> msg) -> Html msg
 viewInput t p v toMsg =
     input [ type_ t, placeholder p, value v, onInput toMsg ] []
+
+bell : Html Msg
+bell =
+    audio [ id "bell" , src "https://freesound.org/data/previews/90/90453_1205486-lq.mp3"] []
+
 
 
 addedPersons : List String -> Html Msg
@@ -450,20 +477,45 @@ addedPersons persons =
         )
 
 
+getPaddedString : Int -> String
+getPaddedString number =
+    String.padLeft 2 '0' (String.fromInt number)
+
+
 timer : Model -> Html Msg
 timer model =
     case model.timerStatus of
+        NotStarted ->
+            div [] []
+
+        _ ->
+            let
+                msLeft =
+                    model.timerDuration - model.elapsedTime
+
+                hrsLeft =
+                    modBy 24 (msLeft // (1000 * 60 * 60))
+
+                minLeft =
+                    modBy 60 (msLeft // (1000 * 60))
+
+                secLeft =
+                    modBy 60 (msLeft // 1000)
+            in
+            div []
+                [ text (getPaddedString hrsLeft ++ ":" ++ getPaddedString minLeft ++ ":" ++ getPaddedString secLeft) ]
+
+
+timerControlls : Model -> Html Msg
+timerControlls model =
+    case model.timerStatus of
         Running ->
             div []
-                [ text (String.fromInt (model.timerDuration - model.elapsedTime))
-                , button [ onClick Pause ] [ text "Pause timer" ]
-                ]
+                [ button [ onClick Pause ] [ text "Pause timer" ] ]
 
         Paused ->
             div []
-                [ text (String.fromInt (model.timerDuration - model.elapsedTime))
-                , button [ onClick Resume ] [ text "Resume" ]
-                ]
+                [ button [ onClick Resume ] [ text "Resume" ] ]
 
         Done ->
             div []
