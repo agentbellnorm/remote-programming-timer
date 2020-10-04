@@ -55,6 +55,8 @@ io.on('connection', socket => {
   })
 });
 
-server.listen(9000, function() {
-  console.log('listening on *:9000');
+const port = process.env.PORT || 9000;
+
+server.listen(port, function() {
+  console.log(`listening on *:${port}`);
 });
